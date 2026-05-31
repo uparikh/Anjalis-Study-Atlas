@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anjali's Study Atlas · A&amp;P + Clinical Medicine</title>
+  <meta name="description" content="An interactive study atlas for PA-school prep: A&P and Clinical Medicine notes, a clickable body map, and progress tracking." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Mukta:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%237a1f2b'/%3E%3Ccircle cx='32' cy='32' r='10' fill='%23f4a300'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div class="app">
+    <div class="toran"></div>
+    <header class="masthead">
+      <span class="mandala" id="mandala"></span>
+      <span class="title">
+        <b>Anjali&rsquo;s Study Atlas</b>
+        <span>Anatomy &middot; Physiology &middot; Clinical Medicine</span>
+      </span>
+      <span class="grow"></span>
+      <span class="savedot" title="Your notes save automatically in this browser"><i></i> Auto-saved</span>
+      <div class="tools">
+        <button class="btn btn-ghost" id="btn-import">Import</button>
+        <button class="btn btn-gold" id="btn-export">Export backup</button>
+        <input type="file" id="import-file" accept="application/json" hidden />
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="rail" id="rail"></nav>
+      <main class="content" id="content"></main>
+    </div>
+
+    <footer class="foot">
+      Made with <span class="heart">&hearts;</span> for Anjali&rsquo;s PA-school journey &middot; notes stay private in your browser
+    </footer>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/notes.js"></script>
+  <script src="js/body2d.js"></script>
+  <script src="js/body3d.js"></script>
+  <script src="js/app.js"></script>
+  <script>document.getElementById("mandala").innerHTML = SVG.mandala;</script>
+</body>
+</html>
