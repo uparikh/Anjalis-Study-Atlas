@@ -62,6 +62,16 @@ function rtToolbar() {
   document.body.appendChild(bar);
   window.addEventListener("scroll", () => { if (_rtActive) placeRtBar(_rtActive); }, true);
   window.addEventListener("resize", () => { if (_rtActive) placeRtBar(_rtActive); });
+  // keep the toolbar up while editing; only dismiss on a real click outside notes + bar, or Escape
+  document.addEventListener("mousedown", e => {
+    if (!_rtBar || !_rtBar.classList.contains("show")) return;
+    const t = e.target;
+    if (t.closest && (t.closest(".note") || _rtBar.contains(t))) return;
+    _rtActive = null; hideRtBar();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && _rtBar) { _rtActive = null; hideRtBar(); }
+  });
   _rtBar = bar;
   return bar;
 }
@@ -81,6 +91,46 @@ function placeRtBar(target) {
 
 function hideRtBar() { if (_rtBar) _rtBar.classList.remove("show"); }
 
+/* downscale a pasted/dropped image to a compact data URL, then insert at caret */
+function insertImageFile(ed, file, savedRange) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const maxSide = 1100;
+      let w = img.width, h = img.height;
+      const scale = Math.min(1, maxSide / Math.max(w, h));
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      // PNG keeps text/diagrams crisp; fall back to JPEG if it gets too heavy
+      let url = canvas.toDataURL("image/png");
+      if (url.length > 900000) url = canvas.toDataURL("image/jpeg", 0.85);
+
+      const node = new Image();
+      node.src = url;
+      node.alt = "pasted image";
+
+      ed.focus();
+      const sel = window.getSelection();
+      if (savedRange) { sel.removeAllRanges(); sel.addRange(savedRange); }
+      const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+      if (range && ed.contains(range.commonAncestorContainer)) {
+        range.deleteContents();
+        range.insertNode(node);
+        range.setStartAfter(node); range.collapse(true);
+        sel.removeAllRanges(); sel.addRange(range);
+      } else {
+        ed.appendChild(node);
+      }
+      Store.setField(ed.dataset.field, ed.innerHTML);
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 /* rich, auto-growing note field bound to a Store field */
 function noteArea(fieldId, placeholder = "") {
   const ed = el("div", {
@@ -92,13 +142,26 @@ function noteArea(fieldId, placeholder = "") {
     if (!ed.textContent.trim() && !ed.querySelector("img,li")) ed.innerHTML = ""; // restore placeholder
     Store.setField(fieldId, ed.innerHTML);
   });
-  ed.addEventListener("focus", () => { _rtActive = ed; placeRtBar(ed); });
-  ed.addEventListener("blur", () => {
-    setTimeout(() => {                               // keep open if focus went into the toolbar
-      const a = document.activeElement;
-      if (!_rtBar || !_rtBar.contains(a)) { if (_rtActive === ed) _rtActive = null; hideRtBar(); }
-    }, 120);
+  ed.addEventListener("paste", e => {
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.kind === "file" && it.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = it.getAsFile();
+        const sel = window.getSelection();
+        const savedRange = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+        if (file) insertImageFile(ed, file, savedRange);
+        return;                                        // image handled; skip default paste
+      }
+    }
   });
+  ed.addEventListener("dragover", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+  ed.addEventListener("drop", e => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    const file = files && [...files].find(f => f.type.startsWith("image/"));
+    if (file) { e.preventDefault(); ed.focus(); insertImageFile(ed, file, null); }
+  });
+  ed.addEventListener("focus", () => { _rtActive = ed; placeRtBar(ed); });
   return ed;
 }
 

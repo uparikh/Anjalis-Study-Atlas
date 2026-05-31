@@ -332,6 +332,7 @@ const App = (() => {
 
   /* ------------------------------ toolbar ------------------------------ */
   function wireToolbar() {
+    document.getElementById("btn-print").addEventListener("click", () => Print.booklet());
     document.getElementById("btn-export").addEventListener("click", () => { Store.download(); toast("Backup downloaded ✓"); });
 
     const fileInput = document.getElementById("import-file");

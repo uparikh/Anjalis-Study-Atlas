@@ -7,38 +7,79 @@
 const Body3D = (() => {
   let loaded = null;
 
+  // Try several CDNs so a single blocked/slow host doesn't kill the 3D view.
+  const SOURCES = [
+    "https://unpkg.com/three@0.152.0/build/three.min.js",
+    "https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.152.0/three.min.js"
+  ];
   function loadThree() {
     if (loaded) return loaded;
     loaded = new Promise((resolve, reject) => {
       if (window.THREE) return resolve(window.THREE);
-      const s = document.createElement("script");
-      s.src = "https://unpkg.com/three@0.152.0/build/three.min.js";
-      s.onload = () => resolve(window.THREE);
-      s.onerror = () => reject(new Error("Three.js failed to load (offline?)."));
-      document.head.appendChild(s);
+      let i = 0;
+      const tryNext = () => {
+        if (i >= SOURCES.length) return reject(new Error("Three.js failed to load from all CDNs."));
+        const url = SOURCES[i++];
+        const s = document.createElement("script");
+        s.src = url;
+        s.crossOrigin = "anonymous";
+        s.onload = () => window.THREE ? resolve(window.THREE) : tryNext();
+        s.onerror = () => { s.remove(); tryNext(); };
+        document.head.appendChild(s);
+      };
+      tryNext();
     });
     return loaded;
+  }
+
+  function webglAvailable() {
+    try {
+      const c = document.createElement("canvas");
+      return !!(window.WebGLRenderingContext &&
+        (c.getContext("webgl") || c.getContext("experimental-webgl")));
+    } catch (e) { return false; }
+  }
+
+  function showFallback(host, msg) {
+    host.innerHTML = `<div class="hint" style="position:static;margin:40px auto;max-width:85%;text-align:center;line-height:1.5">${msg}</div>`;
   }
 
   // region index -> label (matches data.js musculoskeletal regions order)
   const REGION = (i, sys) => sys.regions[i];
 
   async function mount(host, sys, onJump) {
+    if (!webglAvailable()) {
+      showFallback(host, "Your browser doesn’t have 3D (WebGL) turned on, so the model can’t draw here. " +
+        "The labeled muscle tables below work perfectly — use the region links to jump in. " +
+        "On iPhone/iPad, 3D works best in Safari with Settings → Safari → Advanced → WebGL enabled.");
+      return;
+    }
+
     let THREE;
     try { THREE = await loadThree(); }
     catch (e) {
-      host.innerHTML = `<div class="hint" style="position:static;margin:40px auto;max-width:80%">
-        3D view needs an internet connection the first time. The muscle tables below work offline.</div>`;
+      showFallback(host, "The 3D model loads from the internet the first time and couldn’t be reached " +
+        "(a network block, ad-blocker, or offline connection can cause this). Try a refresh on Wi-Fi — " +
+        "meanwhile the muscle tables below work fully offline.");
       return;
     }
 
     host.innerHTML = "";
-    const W = host.clientWidth, H = host.clientHeight;
+    const W = host.clientWidth, H = host.clientHeight || 460;
+
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch (e) {
+      showFallback(host, "This device couldn’t start a 3D canvas, but the muscle tables below have everything you need.");
+      return;
+    }
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 100);
     camera.position.set(0, 0.2, 11);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.setSize(W, H);
     host.appendChild(renderer.domElement);
