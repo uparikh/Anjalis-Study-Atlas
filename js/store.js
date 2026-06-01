@@ -74,13 +74,26 @@ const Store = (() => {
   const SAVE_MAX  = 60000;   // ...but at least once a minute while actively editing
   let cloudTimer = null, firstDirtyAt = 0, dirty = false;
 
-  function flushCloud() {
-    clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0; dirty = false;
+  // Browsers cap the *total* body of any keepalive fetch at 64 KiB. Notes that
+  // include pasted diagrams (data-URL images) sail past that, so keepalive can
+  // only be used for the small-snapshot case on tab hide/close. Normal saves
+  // use a regular fetch, which has no such limit and completes while the tab is
+  // open. Without this, every save silently failed once notes grew past ~64 KB.
+  const KEEPALIVE_LIMIT = 60000; // stay safely under the 64 KiB ceiling
+
+  function flushCloud(opts) {
+    clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0;
+    const body = JSON.stringify(state);
+    const unloading = !!(opts && opts.unload);
     fetch(CLOUD.url, {
       method: "PUT",
       headers: { "x-atlas-key": CLOUD.key, "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-      keepalive: true
+      body,
+      // only opt into keepalive on unload, and only when the body fits its cap
+      keepalive: unloading && body.length < KEEPALIVE_LIMIT
+    }).then(r => {
+      if (r.ok) dirty = false;
+      else { dirty = true; console.error("Cloud save rejected:", r.status); }
     }).catch(() => { dirty = true; }); // offline: localStorage holds it; retry next change
   }
 
@@ -95,7 +108,7 @@ const Store = (() => {
 
   // Always back up the latest before the tab is hidden or closed.
   if (typeof window !== "undefined") {
-    const flushIfDirty = () => { if (dirty) flushCloud(); };
+    const flushIfDirty = () => { if (dirty) flushCloud({ unload: true }); };
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flushIfDirty();
     });
