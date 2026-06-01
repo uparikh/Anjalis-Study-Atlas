@@ -384,7 +384,11 @@ const App = (() => {
       buildRail();
       if ((location.hash || "#/") === "#/") { /* light refresh of stats only on home */ }
     });
+    // when the cloud copy replaces local (fresh device / wiped browser), redraw
+    Store.onRemote(() => { buildRail(); route(); });
     route();
+    // pull from the cloud in the background, then keep it in sync
+    Store.cloudSync();
   }
 
   return { init, toast };

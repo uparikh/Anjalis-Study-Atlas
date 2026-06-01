@@ -15,6 +15,14 @@
 
 const Store = (() => {
   const KEY = "anjali_study_v2";
+
+  // --- cloud sync (Cloudflare Worker + KV) ---------------------------------
+  // localStorage stays the fast local cache; this mirrors it to the cloud so
+  // notes survive a browser-memory wipe with no login. Last-write-wins.
+  const CLOUD = {
+    url: "https://anjali-atlas.uditparikh28.workers.dev/",
+    key: "atlas_9f3c7a1e8b4d62059e7c"
+  };
   const blank = () => ({
     v: 2, fields: {}, checks: {}, status: {}, rows: {}, topics: {},
     goals: {}, streak: { log: {} }, updated: Date.now()
@@ -42,7 +50,81 @@ const Store = (() => {
       try { localStorage.setItem(KEY, JSON.stringify(state)); }
       catch (e) { console.error("Save failed (storage full?)", e); }
       emit();
+      pushCloud();
     }, 250);
+  }
+
+  // --- cloud push/pull -----------------------------------------------------
+  function isEmpty(s) {
+    return s && !Object.keys(s.fields || {}).length
+      && !Object.keys(s.checks || {}).length
+      && !Object.keys(s.status || {}).length
+      && !Object.keys(s.rows || {}).length
+      && !Object.keys(s.topics || {}).length
+      && !Object.keys(s.goals || {}).length
+      && !Object.keys((s.streak && s.streak.log) || {}).length;
+  }
+
+  // Background cloud save: wait until she stops editing for SAVE_IDLE ms, but
+  // never hold unsaved changes longer than SAVE_MAX ms during nonstop typing.
+  // Also flushes instantly when the tab is hidden or closed. Each save is a
+  // full snapshot, so a dropped/late save never loses data — the next one
+  // re-syncs everything. This keeps writes far under the free 1,000/day cap.
+  const SAVE_IDLE = 10000;   // save 10s after the last change
+  const SAVE_MAX  = 60000;   // ...but at least once a minute while actively editing
+  let cloudTimer = null, firstDirtyAt = 0, dirty = false;
+
+  function flushCloud() {
+    clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0; dirty = false;
+    fetch(CLOUD.url, {
+      method: "PUT",
+      headers: { "x-atlas-key": CLOUD.key, "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+      keepalive: true
+    }).catch(() => { dirty = true; }); // offline: localStorage holds it; retry next change
+  }
+
+  function pushCloud(immediate) {
+    dirty = true;
+    if (immediate) { flushCloud(); return; }
+    if (!firstDirtyAt) firstDirtyAt = Date.now();
+    clearTimeout(cloudTimer);
+    const wait = Math.min(SAVE_IDLE, Math.max(0, SAVE_MAX - (Date.now() - firstDirtyAt)));
+    cloudTimer = setTimeout(flushCloud, wait);
+  }
+
+  // Always back up the latest before the tab is hidden or closed.
+  if (typeof window !== "undefined") {
+    const flushIfDirty = () => { if (dirty) flushCloud(); };
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushIfDirty();
+    });
+    window.addEventListener("pagehide", flushIfDirty);
+  }
+
+  const remoteSubs = new Set();
+  function onRemote(fn) { remoteSubs.add(fn); return () => remoteSubs.delete(fn); }
+
+  // Pull cloud copy once at startup. Adopt it if local is empty (e.g. a fresh
+  // device or a wiped browser) or if the cloud copy is newer; otherwise push
+  // the local copy up so the cloud catches up.
+  async function cloudSync() {
+    let remote = null;
+    try {
+      const r = await fetch(CLOUD.url, { headers: { "x-atlas-key": CLOUD.key } });
+      if (!r.ok) return;
+      remote = JSON.parse(await r.text());
+    } catch (e) { return; } // offline / unreachable: keep working from localStorage
+
+    const remoteHasData = remote && remote.fields && !isEmpty(remote);
+    if (remoteHasData && (isEmpty(state) || (remote.updated || 0) > (state.updated || 0))) {
+      state = Object.assign(blank(), remote);
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+      emit();
+      remoteSubs.forEach(fn => { try { fn(); } catch (_) {} });
+      return;
+    }
+    if (!isEmpty(state)) pushCloud(true); // local wins (or cloud empty): seed cloud
   }
 
   // --- study streak --------------------------------------------------------
@@ -154,6 +236,7 @@ const Store = (() => {
     getGoals, setGoals, goalDates,
     checklistProgress, streakCount, activeDays,
     today, exportJSON, download, importJSON, subscribe,
+    onRemote, cloudSync,
     get log() { return state.streak.log; }
   };
 })();
