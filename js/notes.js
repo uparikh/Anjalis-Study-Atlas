@@ -176,66 +176,86 @@ function videoBox(key) {
     host);
 }
 
-/* ---- resizable diagram / image box (one per muscle region) ---- */
+/* ---- resizable diagram box holding one or more images (per section/region) ---- */
+function diagramImages(key) {
+  const raw = Store.getField(key);
+  if (!raw) return [];
+  if (raw.indexOf("data:") === 0) {                 // legacy single-image value
+    const sz = Store.getField(key + ":size");
+    const o = { src: raw };
+    if (sz && /^\d+x\d+$/.test(sz)) { const [w, h] = sz.split("x").map(Number); o.w = w; o.h = h; }
+    return [o];
+  }
+  try { const a = JSON.parse(raw); return Array.isArray(a) ? a : []; }
+  catch (e) { return []; }
+}
+
 function diagramBox(key) {
-  const sizeKey = key + ":size";
   const host = el("div", { class: "diagram-box", tabindex: "0" });
 
-  const setImg = url => { Store.setField(key, url); render(); };
-  const handleFile = file => { if (file && file.type.startsWith("image/")) downscaleToDataURL(file, setImg); };
+  const load = () => diagramImages(key);
+  const save = arr => Store.setField(key, arr.length ? JSON.stringify(arr) : "");
+  const addImage = url => { const arr = load(); arr.push({ src: url }); save(arr); render(); };
+  const handleFile = file => { if (file && file.type.startsWith("image/")) downscaleToDataURL(file, addImage); };
 
   function filePicker() {
-    const fi = el("input", { type: "file", accept: "image/*", hidden: "" });
-    fi.addEventListener("change", e => { handleFile(e.target.files[0]); e.target.value = ""; });
+    const fi = el("input", { type: "file", accept: "image/*", multiple: "", hidden: "" });
+    fi.addEventListener("change", e => { [...e.target.files].forEach(handleFile); e.target.value = ""; });
     return fi;
+  }
+
+  function frameFor(item, idx) {
+    const frame = el("div", { class: "diagram-frame" });
+    if (item.w && item.h) { frame.style.width = item.w + "px"; frame.style.height = item.h + "px"; }
+    frame.appendChild(el("img", { src: item.src, alt: "Diagram", draggable: "false" }));
+    if (window.ResizeObserver) {
+      let t;
+      new ResizeObserver(() => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          const a = load();
+          if (a[idx]) { a[idx].w = Math.round(frame.clientWidth); a[idx].h = Math.round(frame.clientHeight); save(a); }
+        }, 250);
+      }).observe(frame);
+    }
+    const del = el("button", { class: "diagram-del", type: "button", title: "Remove image" }, "×");
+    del.addEventListener("click", () => { const a = load(); a.splice(idx, 1); save(a); render(); });
+    return el("div", { class: "diagram-wrap" }, frame, del);
   }
 
   function render() {
     host.innerHTML = "";
-    const data = Store.getField(key);
-    if (data) {
-      const frame = el("div", { class: "diagram-frame" });
-      const sz = Store.getField(sizeKey);
-      if (sz && /^\d+x\d+$/.test(sz)) {
-        const [w, h] = sz.split("x");
-        frame.style.width = w + "px"; frame.style.height = h + "px";
-      }
-      frame.appendChild(el("img", { src: data, alt: "Region diagram", draggable: "false" }));
-      if (window.ResizeObserver) {
-        let t;
-        new ResizeObserver(() => {
-          clearTimeout(t);
-          t = setTimeout(() => Store.setField(sizeKey,
-            Math.round(frame.clientWidth) + "x" + Math.round(frame.clientHeight)), 250);
-        }).observe(frame);
-      }
-      const del = el("button", { class: "diagram-del", type: "button", title: "Remove image" }, "×");
-      del.addEventListener("click", () => { Store.setField(key, ""); Store.setField(sizeKey, ""); render(); });
+    const arr = load();
+    if (arr.length) {
+      const grid = el("div", { class: "diagram-grid" });
+      arr.forEach((item, idx) => grid.appendChild(frameFor(item, idx)));
+      host.appendChild(grid);
       const fi = filePicker();
-      const replace = el("button", { class: "btn btn-outline diagram-replace", type: "button" }, "Replace");
-      replace.addEventListener("click", () => fi.click());
-      host.appendChild(el("div", { class: "diagram-wrap" }, frame, del));
-      host.appendChild(el("div", { class: "diagram-actions" }, replace, fi,
-        el("span", { class: "diagram-hint" }, "Drag the bottom-right corner to resize.")));
+      const add = el("button", { class: "btn btn-outline", type: "button" }, "＋ Add another image");
+      add.addEventListener("click", () => fi.click());
+      host.appendChild(el("div", { class: "diagram-actions" }, add, fi,
+        el("span", { class: "diagram-hint" }, "Drag a corner to resize · paste or drop to add more.")));
     } else {
       const fi = filePicker();
       const add = el("button", { class: "btn btn-outline", type: "button" }, "＋ Add image");
       add.addEventListener("click", () => fi.click());
       host.appendChild(el("div", { class: "diagram-empty" },
-        el("p", {}, "Paste a diagram, drop an image, or add one:"), add, fi));
+        el("p", {}, "Paste a diagram, drop an image, or add one (you can add several):"), add, fi));
     }
   }
 
   host.addEventListener("paste", e => {
     const items = (e.clipboardData && e.clipboardData.items) || [];
+    let used = false;
     for (const it of items) {
-      if (it.kind === "file" && it.type.startsWith("image/")) { e.preventDefault(); handleFile(it.getAsFile()); return; }
+      if (it.kind === "file" && it.type.startsWith("image/")) { handleFile(it.getAsFile()); used = true; }
     }
+    if (used) e.preventDefault();
   });
   host.addEventListener("dragover", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
   host.addEventListener("drop", e => {
-    const f = e.dataTransfer && [...e.dataTransfer.files].find(x => x.type.startsWith("image/"));
-    if (f) { e.preventDefault(); handleFile(f); }
+    const files = e.dataTransfer && [...e.dataTransfer.files].filter(x => x.type.startsWith("image/"));
+    if (files && files.length) { e.preventDefault(); files.forEach(handleFile); }
   });
 
   render();
@@ -273,6 +293,19 @@ function noteArea(fieldId, placeholder = "") {
     const files = e.dataTransfer && e.dataTransfer.files;
     const file = files && [...files].find(f => f.type.startsWith("image/"));
     if (file) { e.preventDefault(); ed.focus(); insertImageFile(ed, file, null); }
+  });
+  // Tab / Shift+Tab indents or outdents the current bullet / numbered item
+  ed.addEventListener("keydown", e => {
+    if (e.key !== "Tab") return;
+    const sel = window.getSelection();
+    if (!sel || !sel.anchorNode) return;
+    let node = sel.anchorNode;
+    if (node.nodeType === 3) node = node.parentNode;          // text node -> element
+    const li = node && node.closest ? node.closest("li") : null;
+    if (!li || !ed.contains(li)) return;                      // only hijack Tab inside a list
+    e.preventDefault();
+    document.execCommand(e.shiftKey ? "outdent" : "indent");
+    Store.setField(ed.dataset.field, ed.innerHTML);
   });
   ed.addEventListener("focus", () => { _rtActive = ed; placeRtBar(ed); });
   return ed;
@@ -342,6 +375,7 @@ const Notes = {
         list.appendChild(li);
       });
       block.appendChild(list);
+      block.appendChild(diagramBox(`dia:${sys.id}:${ti}`));
       card.appendChild(block);
     });
     mount.appendChild(card);

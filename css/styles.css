@@ -408,6 +408,7 @@ footer.foot .heart { color: var(--rose); }
   border: 1.5px dashed var(--gold-soft); border-radius: 12px; background: #fffdf8;
 }
 .diagram-empty p { margin: 0; font-size: .9rem; }
+.diagram-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; padding-top: 12px; }
 .diagram-wrap { position: relative; display: inline-block; }
 .diagram-frame {
   position: relative; display: inline-block;

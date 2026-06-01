@@ -13,6 +13,16 @@ const Print = (() => {
   const stripToText = h => String(h || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   const statusLabel = s => s === "done" ? "Mastered" : s === "in" ? "In progress" : "Not started";
 
+  function diagramHTML(key, alt) {
+    const raw = Store.getField(key);
+    if (!raw) return "";
+    let arr;
+    if (raw.indexOf("data:") === 0) arr = [{ src: raw }];
+    else { try { arr = JSON.parse(raw); } catch (e) { arr = []; } }
+    if (!Array.isArray(arr) || !arr.length) return "";
+    return arr.map(it => `<div class="diagram"><img src="${esc(it.src)}" alt="${esc(alt)}"></div>`).join("");
+  }
+
   function apStatus(sys) {
     const manual = Store.getStatus("st:" + sys.id);
     if (manual !== "not") return manual;
@@ -49,6 +59,7 @@ const Print = (() => {
         if (filled(note)) body += `<div class="note">${note}</div>`;
         body += `</div>`;
       });
+      body += diagramHTML(`dia:${sys.id}:${ti}`, t.topic + " diagram");
       html += `<div class="topic"><h3>${SVG.paisley}${esc(t.topic)}</h3>${body}</div>`;
     });
 
@@ -62,8 +73,7 @@ const Print = (() => {
           if (cells.some(filled)) rows.push(cells);
         }
         html += tableHTML(region, sys.muscleColumns, rows);
-        const dia = Store.getField(`${tableId}:diagram`);
-        if (filled(dia)) html += `<div class="diagram"><img src="${esc(dia)}" alt="${esc(region)} diagram"></div>`;
+        html += diagramHTML(`${tableId}:diagram`, region + " diagram");
       });
     }
     return html + `</section>`;
