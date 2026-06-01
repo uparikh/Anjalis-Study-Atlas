@@ -76,11 +76,35 @@ const App = (() => {
         stat("", apDone + "/" + GUIDE.ap.length, "Systems mastered"))
     );
 
+    const onPick = go => location.hash = "#/ap/" + go;
+    const bodyHost = el("div", { class: "body-host" });
+    const renderBody = () => {
+      bodyHost.innerHTML = "";
+      const udit = localStorage.getItem("anjali_udit_mode") === "1";
+      bodyHost.appendChild((udit ? UditBody : Body2D).render(onPick));
+    };
+
+    // "Udit Mode" toggle
+    const toggleInput = el("input", { type: "checkbox", "aria-label": "Toggle Udit Mode" });
+    toggleInput.checked = localStorage.getItem("anjali_udit_mode") === "1";
+    toggleInput.addEventListener("change", () => {
+      localStorage.setItem("anjali_udit_mode", toggleInput.checked ? "1" : "");
+      renderBody();
+    });
+    const toggle = el("label", { class: "udit-toggle", title: "Swap the body map for Udit" },
+      el("span", { class: "udit-toggle-lbl" }, "Udit Mode"),
+      toggleInput,
+      el("span", { class: "udit-slider" }));
+
     const mapCard = el("div", { class: "card framed" },
-      el("h2", { style: "margin:0 0 4px;color:var(--maroon);font-size:1.4rem" }, "Explore by the Body"),
-      el("p", { class: "subtle", style: "margin-bottom:12px" }, "Click a region to open its notes."),
-      Body2D.render(go => location.hash = "#/ap/" + go)
+      el("div", { class: "map-head" },
+        el("div", {},
+          el("h2", { style: "margin:0 0 4px;color:var(--maroon);font-size:1.4rem" }, "Explore by the Body"),
+          el("p", { class: "subtle", style: "margin:0" }, "Click a region to open its notes.")),
+        toggle),
+      bodyHost
     );
+    renderBody();
 
     hero.appendChild(welcome);
     hero.appendChild(mapCard);

@@ -13,6 +13,16 @@ const Print = (() => {
   const stripToText = h => String(h || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   const statusLabel = s => s === "done" ? "Mastered" : s === "in" ? "In progress" : "Not started";
 
+  function videoHTML(key) {
+    const raw = Store.getField(key);
+    if (!raw) return "";
+    let arr;
+    if (/^https?:\/\//i.test(raw)) arr = [raw];
+    else { try { arr = JSON.parse(raw); } catch (e) { arr = []; } }
+    if (!Array.isArray(arr) || !arr.length) return "";
+    return arr.map(u => `<p class="vidline">&#9658; Video: <a href="${esc(u)}">${esc(u)}</a></p>`).join("");
+  }
+
   function diagramHTML(key, alt) {
     const raw = Store.getField(key);
     if (!raw) return "";
@@ -45,8 +55,7 @@ const Print = (() => {
     let html = `<section class="section"><div class="sec-head">${SVG.lotus}` +
       `<h2>${esc(sys.name)}</h2><span class="pill ${st}">${statusLabel(st)}</span></div>`;
     if (sys.blurb) html += `<p class="blurb">${esc(sys.blurb)}</p>`;
-    const vid = Store.getField(`vid:${sys.id}`);
-    if (filled(vid)) html += `<p class="vidline">&#9658; Video: <a href="${esc(vid)}">${esc(vid)}</a></p>`;
+    html += videoHTML(`vid:${sys.id}`);
 
     sys.outline.forEach((t, ti) => {
       const items = t.subs.length ? t.subs : [t.topic];
@@ -85,8 +94,7 @@ const Print = (() => {
     let html = `<section class="section"><div class="sec-head">${SVG.lotus}` +
       `<h2>${esc(spec.name)}</h2><span class="pill ${st}">${statusLabel(st)}</span></div>`;
     if (spec.blurb) html += `<p class="blurb">${esc(spec.blurb)}</p>`;
-    const vid = Store.getField(`vid:clin:${spec.id}`);
-    if (filled(vid)) html += `<p class="vidline">&#9658; Video: <a href="${esc(vid)}">${esc(vid)}</a></p>`;
+    html += videoHTML(`vid:clin:${spec.id}`);
 
     const ovId = `ov:${spec.id}`;
     const ovN = Store.getRows(ovId, C.defaultOverviewRows);

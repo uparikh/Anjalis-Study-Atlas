@@ -136,7 +136,15 @@ function insertImageFile(ed, file, savedRange) {
   });
 }
 
-/* ---- crash-course video link box (one per section) ---- */
+/* ---- crash-course video links box (one or more links per section) ---- */
+function videoLinks(key) {
+  const raw = Store.getField(key);
+  if (!raw) return [];
+  if (/^https?:\/\//i.test(raw)) return [raw];      // legacy single-link value
+  try { const a = JSON.parse(raw); return Array.isArray(a) ? a.filter(Boolean) : []; }
+  catch (e) { return []; }
+}
+
 function videoBox(key) {
   const host = el("div", { class: "video-box" });
   const normalize = u => {
@@ -145,34 +153,43 @@ function videoBox(key) {
     if (!/^https?:\/\//i.test(u)) u = "https://" + u;
     return u;
   };
-  const showSaved = url => {
-    host.innerHTML = "";
-    const a = el("a", { class: "video-link", href: url, target: "_blank", rel: "noopener" },
-      el("span", { class: "vb-play" }, "▶"),
-      el("span", { class: "vb-text" }, "Watch the video"));
-    const edit = el("button", { class: "vb-edit", type: "button", title: "Change link" }, "Edit");
-    edit.addEventListener("click", () => showInput(url));
-    host.appendChild(a); host.appendChild(edit);
+  const load = () => videoLinks(key);
+  const save = arr => Store.setField(key, arr.length ? JSON.stringify(arr) : "");
+  const labelFor = url => {
+    try { return "Watch on " + new URL(url).hostname.replace(/^www\./, ""); }
+    catch (e) { return "Watch the video"; }
   };
-  const showInput = val => {
+
+  function render() {
     host.innerHTML = "";
+    const arr = load();
+    arr.forEach((url, idx) => {
+      const a = el("a", { class: "video-link", href: url, target: "_blank", rel: "noopener" },
+        el("span", { class: "vb-play" }, "▶"),
+        el("span", { class: "vb-text" }, labelFor(url)));
+      const del = el("button", { class: "vb-del", type: "button", title: "Remove link" }, "×");
+      del.addEventListener("click", () => { const x = load(); x.splice(idx, 1); save(x); render(); });
+      host.appendChild(el("div", { class: "video-row" }, a, del));
+    });
+
     const input = el("input", { class: "video-input", type: "url",
-      placeholder: "Paste a Crash Course (or any) video link…" });
-    input.value = val || "";
-    const save = el("button", { class: "btn btn-gold vb-save", type: "button" }, "Save link");
+      placeholder: arr.length ? "Add another video link…" : "Paste a Crash Course (or any) video link…" });
+    const add = el("button", { class: "btn btn-gold vb-save", type: "button" }, "Add link");
     const commit = () => {
       const url = normalize(input.value);
-      Store.setField(key, url);
-      url ? showSaved(url) : showInput("");
+      if (!url) return;
+      const x = load(); x.push(url); save(x);
+      render();
+      const ni = host.querySelector(".video-input"); if (ni) ni.focus();   // ready for the next one
     };
-    save.addEventListener("click", commit);
+    add.addEventListener("click", commit);
     input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); commit(); } });
-    host.appendChild(input); host.appendChild(save);
-  };
-  const cur = normalize(Store.getField(key));
-  cur ? showSaved(cur) : showInput("");
+    host.appendChild(el("div", { class: "video-add" }, input, add));
+  }
+
+  render();
   return el("div", { class: "video-host" },
-    el("div", { class: "video-label" }, el("span", { class: "vb-ico" }, "🎬"), "Crash Course video"),
+    el("div", { class: "video-label" }, el("span", { class: "vb-ico" }, "🎬"), "Crash Course videos"),
     host);
 }
 
