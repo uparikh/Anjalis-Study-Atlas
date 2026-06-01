@@ -23,10 +23,23 @@ const Store = (() => {
     url: "https://anjali-atlas.uditparikh28.workers.dev/",
     key: "atlas_9f3c7a1e8b4d62059e7c"
   };
+  // per-key last-modified timestamps power field-level merge (see mergeStates)
+  const BUCKETS = ["fields", "checks", "status", "rows", "topics", "goals"];
+  const emptyMeta = () => ({ fields: {}, checks: {}, status: {}, rows: {}, topics: {}, goals: {} });
   const blank = () => ({
     v: 2, fields: {}, checks: {}, status: {}, rows: {}, topics: {},
-    goals: {}, streak: { log: {} }, updated: Date.now()
+    goals: {}, streak: { log: {} }, meta: emptyMeta(), updated: Date.now()
   });
+
+  // Record when a key in a bucket last changed (a set OR a delete -> tombstone).
+  // This lets a merge tell a real edit/deletion apart from a device that simply
+  // never had that key, which is what protects a richer copy from being wiped
+  // by whole-document last-write-wins.
+  function touch(bucket, id) {
+    if (!state.meta) state.meta = emptyMeta();
+    if (!state.meta[bucket]) state.meta[bucket] = {};
+    state.meta[bucket][id] = Date.now();
+  }
 
   let state = load();
 
@@ -81,8 +94,8 @@ const Store = (() => {
   // open. Without this, every save silently failed once notes grew past ~64 KB.
   const KEEPALIVE_LIMIT = 60000; // stay safely under the 64 KiB ceiling
 
-  function flushCloud(opts) {
-    clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0;
+  // Raw write of the current state to the cloud.
+  function putCloud(opts) {
     const body = JSON.stringify(state);
     const unloading = !!(opts && opts.unload);
     return fetch(CLOUD.url, {
@@ -95,6 +108,34 @@ const Store = (() => {
       if (r.ok) { dirty = false; return true; }
       dirty = true; console.error("Cloud save rejected:", r.status); return false;
     }).catch(() => { dirty = true; return false; }); // offline: localStorage holds it; retry next change
+  }
+
+  // Read-merge-write: pull the current cloud copy, field-merge it into ours,
+  // then write the union back, so a save can't clobber edits another device
+  // made since our last sync. On unload there's no time for a round-trip, so we
+  // just write what we have — the other device's next load will merge, so no
+  // key is lost either way.
+  let flushing = false;
+  async function flushCloud(opts) {
+    const unloading = !!(opts && opts.unload);
+    clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0;
+    if (unloading) return putCloud(opts);
+    if (flushing) { cloudTimer = setTimeout(() => flushCloud(), 1500); return false; }
+    flushing = true;
+    try {
+      try {
+        const r = await fetch(CLOUD.url, { headers: { "x-atlas-key": CLOUD.key } });
+        if (r.ok) {
+          const remote = JSON.parse(await r.text());
+          if (remote && typeof remote === "object" && remote.fields) {
+            state = mergeStates(state, remote);
+            try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+            emit();
+          }
+        }
+      } catch (_) { /* offline: write local as-is below */ }
+      return await putCloud(opts);
+    } finally { flushing = false; }
   }
 
   // Force an immediate push to the cloud, bypassing the debounce. Persists the
@@ -125,9 +166,48 @@ const Store = (() => {
   const remoteSubs = new Set();
   function onRemote(fn) { remoteSubs.add(fn); return () => remoteSubs.delete(fn); }
 
-  // Pull cloud copy once at startup. Adopt it if local is empty (e.g. a fresh
-  // device or a wiped browser) or if the cloud copy is newer; otherwise push
-  // the local copy up so the cloud catches up.
+  // --- field-level merge (last-write-wins per key, not per document) -------
+  // Each side timestamps every key it has touched. For each key we keep the
+  // value from whichever side changed it most recently; a key a side never had
+  // (no value AND no meta) carries no opinion, so it can't erase the other
+  // side's value. Deletions leave a tombstone timestamp, so they still
+  // propagate instead of being resurrected.
+  function keyTs(side, bucket, id) {
+    const m = side.meta && side.meta[bucket];
+    if (m && m[id] != null) return m[id];
+    // legacy data with no per-key meta: fall back to the document timestamp for
+    // keys it actually has, otherwise 0 (no opinion).
+    const has = side[bucket] && Object.prototype.hasOwnProperty.call(side[bucket], id);
+    return has ? (side.updated || 0) : 0;
+  }
+
+  function mergeStates(a, b) {
+    const out = blank();
+    out.updated = Math.max(a.updated || 0, b.updated || 0);
+    BUCKETS.forEach(bucket => {
+      const ids = new Set([
+        ...Object.keys(a[bucket] || {}), ...Object.keys(b[bucket] || {}),
+        ...Object.keys((a.meta && a.meta[bucket]) || {}),
+        ...Object.keys((b.meta && b.meta[bucket]) || {})
+      ]);
+      ids.forEach(id => {
+        const ta = keyTs(a, bucket, id), tb = keyTs(b, bucket, id);
+        const win = ta >= tb ? a : b;          // newer wins; ties favor local (a)
+        out.meta[bucket][id] = Math.max(ta, tb);
+        if (win[bucket] && Object.prototype.hasOwnProperty.call(win[bucket], id)) {
+          out[bucket][id] = win[bucket][id];   // winner has a value -> keep it
+        }                                      // winner deleted it -> stays gone
+      });
+    });
+    // the study streak is append-only: union every recorded day so none is lost
+    out.streak = { log: Object.assign({},
+      (b.streak && b.streak.log) || {}, (a.streak && a.streak.log) || {}) };
+    return out;
+  }
+
+  // Pull the cloud copy at startup and field-merge it with the local copy, so
+  // neither device's edits are lost regardless of clock skew or which saved
+  // last. Then write the merged union back so the cloud converges.
   async function cloudSync() {
     let remote = null;
     try {
@@ -136,15 +216,18 @@ const Store = (() => {
       remote = JSON.parse(await r.text());
     } catch (e) { return; } // offline / unreachable: keep working from localStorage
 
-    const remoteHasData = remote && remote.fields && !isEmpty(remote);
-    if (remoteHasData && (isEmpty(state) || (remote.updated || 0) > (state.updated || 0))) {
-      state = Object.assign(blank(), remote);
+    if (remote && typeof remote === "object" && remote.fields) {
+      const before = JSON.stringify(state);
+      state = mergeStates(state, remote);
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
-      emit();
-      remoteSubs.forEach(fn => { try { fn(); } catch (_) {} });
+      if (JSON.stringify(state) !== before) {
+        emit();
+        remoteSubs.forEach(fn => { try { fn(); } catch (_) {} });
+      }
+      putCloud({}); // write the merged union back so the cloud converges
       return;
     }
-    if (!isEmpty(state)) pushCloud(true); // local wins (or cloud empty): seed cloud
+    if (!isEmpty(state)) putCloud({}); // cloud empty/invalid: seed it from local
   }
 
   // --- study streak --------------------------------------------------------
@@ -174,30 +257,30 @@ const Store = (() => {
   function getField(id) { return state.fields[id] || ""; }
   function setField(id, val) {
     if (val === "") delete state.fields[id]; else state.fields[id] = val;
-    markActive(); persist();
+    touch("fields", id); markActive(); persist();
   }
 
   function getCheck(id) { return !!state.checks[id]; }
   function setCheck(id, on) {
     if (on) state.checks[id] = true; else delete state.checks[id];
-    markActive(); persist();
+    touch("checks", id); markActive(); persist();
   }
 
   function getStatus(id) { return state.status[id] || "not"; }
   function setStatus(id, val) {
     if (val === "not") delete state.status[id]; else state.status[id] = val;
-    markActive(); persist();
+    touch("status", id); markActive(); persist();
   }
 
   function getRows(id, fallback) {
     return state.rows[id] != null ? state.rows[id] : fallback;
   }
-  function setRows(id, n) { state.rows[id] = n; persist(); }
+  function setRows(id, n) { state.rows[id] = n; touch("rows", id); persist(); }
 
   function getTopics(id, fallback) {
     return state.topics[id] != null ? state.topics[id] : fallback;
   }
-  function setTopics(id, n) { state.topics[id] = n; persist(); }
+  function setTopics(id, n) { state.topics[id] = n; touch("topics", id); persist(); }
 
   // --- daily goals (todo lists keyed by date) ------------------------------
   // shape: goals[ "YYYY-MM-DD" ] = [ { t: "text", d: false } ]
@@ -205,7 +288,7 @@ const Store = (() => {
   function setGoals(date, arr) {
     if (!arr || !arr.length) delete state.goals[date];
     else state.goals[date] = arr.map(g => ({ t: g.t, d: !!g.d }));
-    markActive(); persist();
+    touch("goals", date); markActive(); persist();
   }
   function goalDates() { return Object.keys(state.goals).sort().reverse(); }
 
