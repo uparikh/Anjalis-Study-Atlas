@@ -35,6 +35,8 @@ const Print = (() => {
     let html = `<section class="section"><div class="sec-head">${SVG.lotus}` +
       `<h2>${esc(sys.name)}</h2><span class="pill ${st}">${statusLabel(st)}</span></div>`;
     if (sys.blurb) html += `<p class="blurb">${esc(sys.blurb)}</p>`;
+    const vid = Store.getField(`vid:${sys.id}`);
+    if (filled(vid)) html += `<p class="vidline">&#9658; Video: <a href="${esc(vid)}">${esc(vid)}</a></p>`;
 
     sys.outline.forEach((t, ti) => {
       const items = t.subs.length ? t.subs : [t.topic];
@@ -60,6 +62,8 @@ const Print = (() => {
           if (cells.some(filled)) rows.push(cells);
         }
         html += tableHTML(region, sys.muscleColumns, rows);
+        const dia = Store.getField(`${tableId}:diagram`);
+        if (filled(dia)) html += `<div class="diagram"><img src="${esc(dia)}" alt="${esc(region)} diagram"></div>`;
       });
     }
     return html + `</section>`;
@@ -71,6 +75,8 @@ const Print = (() => {
     let html = `<section class="section"><div class="sec-head">${SVG.lotus}` +
       `<h2>${esc(spec.name)}</h2><span class="pill ${st}">${statusLabel(st)}</span></div>`;
     if (spec.blurb) html += `<p class="blurb">${esc(spec.blurb)}</p>`;
+    const vid = Store.getField(`vid:clin:${spec.id}`);
+    if (filled(vid)) html += `<p class="vidline">&#9658; Video: <a href="${esc(vid)}">${esc(vid)}</a></p>`;
 
     const ovId = `ov:${spec.id}`;
     const ovN = Store.getRows(ovId, C.defaultOverviewRows);
@@ -117,8 +123,8 @@ const Print = (() => {
   }
 
   const CSS = `
-    :root{ --maroon:#7a1f2b; --teal:#0f7173; --marigold:#f4a300; --gold:#c79a3b;
-      --ink:#2a2118; --ink-soft:#6b5d4f; --line:#ecdcc1; }
+    :root{ --maroon:#987654; --teal:#0f7173; --marigold:#c19a6b; --gold:#b89a6a;
+      --ink:#2a2118; --ink-soft:#6b5d4f; --line:#e3d6bb; }
     *{ box-sizing:border-box; }
     html,body{ margin:0; padding:0; background:#fff; color:var(--ink);
       font-family:'Mukta',system-ui,sans-serif; font-size:11pt; line-height:1.5; }
@@ -142,6 +148,10 @@ const Print = (() => {
     .sec-head .pill.done{ border-color:var(--teal); color:var(--teal); }
     .sec-head .pill.in{ border-color:var(--marigold); color:#b5760a; }
     .blurb{ color:var(--ink-soft); font-style:italic; margin:0 0 10px; font-size:10pt; }
+    .vidline{ margin:0 0 10px; font-size:9.5pt; color:var(--teal); }
+    .vidline a{ color:var(--teal); word-break:break-all; }
+    .diagram{ margin:6px 0 12px; text-align:center; break-inside:avoid; }
+    .diagram img{ max-width:80%; max-height:90mm; border:1px solid var(--line); border-radius:6px; }
     .topic{ margin:9px 0; break-inside:avoid; }
     .topic h3{ margin:0 0 3px; color:var(--teal); font-size:12.5pt; display:flex; align-items:center; gap:6px; }
     .topic h3 svg{ width:14px; height:14px; color:var(--marigold); flex:0 0 auto; }

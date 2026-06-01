@@ -48,8 +48,8 @@ const AP_SYSTEMS = [
       { topic: "Muscles and Muscle Tissue", subs: ["Types of Muscle Tissue", "Skeletal Muscle", "Muscle Contraction", "Smooth Muscle"] },
       { topic: "Muscular System", subs: ["Movement", "Naming", "Arrangements"] }
     ],
-    // Muscle region tables — columns mirror her sheet.
-    muscleColumns: ["Muscle", "Description", "Origin", "Insertion", "Action", "Nerve Supply", "Diagram"],
+    // Muscle region tables — columns mirror her sheet (diagram lives in its own box).
+    muscleColumns: ["Muscle", "Description", "Origin", "Insertion", "Action", "Nerve Supply"],
     regions: [
       "Head",
       "Anterior Neck and Throat",

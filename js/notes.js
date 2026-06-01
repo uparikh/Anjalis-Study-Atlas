@@ -49,8 +49,8 @@ function rtToolbar() {
   bar.appendChild(btn("⇤", "Outdent", "outdent"));
   bar.appendChild(btn("⇥", "Indent (nest bullet / number)", "indent"));
   bar.appendChild(el("span", { class: "rt-sep" }));
-  [["#7a1f2b", "Maroon"], ["#0f7173", "Teal"], ["#f4a300", "Marigold"],
-   ["#c79a3b", "Gold"], ["#2a2118", "Ink"]].forEach(([c, name]) => {
+  [["#987654", "Maroon"], ["#0f7173", "Teal"], ["#c19a6b", "Marigold"],
+   ["#b89a6a", "Gold"], ["#2a2118", "Ink"]].forEach(([c, name]) => {
     const s = el("button", { class: "rt-swatch", type: "button", title: name + " text" });
     s.style.background = c;
     s.addEventListener("mousedown", e => { e.preventDefault(); apply("foreColor", c); });
@@ -91,13 +91,12 @@ function placeRtBar(target) {
 
 function hideRtBar() { if (_rtBar) _rtBar.classList.remove("show"); }
 
-/* downscale a pasted/dropped image to a compact data URL, then insert at caret */
-function insertImageFile(ed, file, savedRange) {
+/* downscale a chosen/pasted/dropped image to a compact data URL */
+function downscaleToDataURL(file, cb, maxSide = 1100) {
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
     img.onload = () => {
-      const maxSide = 1100;
       let w = img.width, h = img.height;
       const scale = Math.min(1, maxSide / Math.max(w, h));
       w = Math.round(w * scale); h = Math.round(h * scale);
@@ -107,7 +106,16 @@ function insertImageFile(ed, file, savedRange) {
       // PNG keeps text/diagrams crisp; fall back to JPEG if it gets too heavy
       let url = canvas.toDataURL("image/png");
       if (url.length > 900000) url = canvas.toDataURL("image/jpeg", 0.85);
+      cb(url);
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
 
+/* downscale a pasted/dropped image to a compact data URL, then insert at caret */
+function insertImageFile(ed, file, savedRange) {
+  downscaleToDataURL(file, url => {
       const node = new Image();
       node.src = url;
       node.alt = "pasted image";
@@ -125,10 +133,115 @@ function insertImageFile(ed, file, savedRange) {
         ed.appendChild(node);
       }
       Store.setField(ed.dataset.field, ed.innerHTML);
-    };
-    img.src = reader.result;
+  });
+}
+
+/* ---- crash-course video link box (one per section) ---- */
+function videoBox(key) {
+  const host = el("div", { class: "video-box" });
+  const normalize = u => {
+    u = String(u || "").trim();
+    if (!u) return "";
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    return u;
   };
-  reader.readAsDataURL(file);
+  const showSaved = url => {
+    host.innerHTML = "";
+    const a = el("a", { class: "video-link", href: url, target: "_blank", rel: "noopener" },
+      el("span", { class: "vb-play" }, "▶"),
+      el("span", { class: "vb-text" }, "Watch the video"));
+    const edit = el("button", { class: "vb-edit", type: "button", title: "Change link" }, "Edit");
+    edit.addEventListener("click", () => showInput(url));
+    host.appendChild(a); host.appendChild(edit);
+  };
+  const showInput = val => {
+    host.innerHTML = "";
+    const input = el("input", { class: "video-input", type: "url",
+      placeholder: "Paste a Crash Course (or any) video link…" });
+    input.value = val || "";
+    const save = el("button", { class: "btn btn-gold vb-save", type: "button" }, "Save link");
+    const commit = () => {
+      const url = normalize(input.value);
+      Store.setField(key, url);
+      url ? showSaved(url) : showInput("");
+    };
+    save.addEventListener("click", commit);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); commit(); } });
+    host.appendChild(input); host.appendChild(save);
+  };
+  const cur = normalize(Store.getField(key));
+  cur ? showSaved(cur) : showInput("");
+  return el("div", { class: "video-host" },
+    el("div", { class: "video-label" }, el("span", { class: "vb-ico" }, "🎬"), "Crash Course video"),
+    host);
+}
+
+/* ---- resizable diagram / image box (one per muscle region) ---- */
+function diagramBox(key) {
+  const sizeKey = key + ":size";
+  const host = el("div", { class: "diagram-box", tabindex: "0" });
+
+  const setImg = url => { Store.setField(key, url); render(); };
+  const handleFile = file => { if (file && file.type.startsWith("image/")) downscaleToDataURL(file, setImg); };
+
+  function filePicker() {
+    const fi = el("input", { type: "file", accept: "image/*", hidden: "" });
+    fi.addEventListener("change", e => { handleFile(e.target.files[0]); e.target.value = ""; });
+    return fi;
+  }
+
+  function render() {
+    host.innerHTML = "";
+    const data = Store.getField(key);
+    if (data) {
+      const frame = el("div", { class: "diagram-frame" });
+      const sz = Store.getField(sizeKey);
+      if (sz && /^\d+x\d+$/.test(sz)) {
+        const [w, h] = sz.split("x");
+        frame.style.width = w + "px"; frame.style.height = h + "px";
+      }
+      frame.appendChild(el("img", { src: data, alt: "Region diagram", draggable: "false" }));
+      if (window.ResizeObserver) {
+        let t;
+        new ResizeObserver(() => {
+          clearTimeout(t);
+          t = setTimeout(() => Store.setField(sizeKey,
+            Math.round(frame.clientWidth) + "x" + Math.round(frame.clientHeight)), 250);
+        }).observe(frame);
+      }
+      const del = el("button", { class: "diagram-del", type: "button", title: "Remove image" }, "×");
+      del.addEventListener("click", () => { Store.setField(key, ""); Store.setField(sizeKey, ""); render(); });
+      const fi = filePicker();
+      const replace = el("button", { class: "btn btn-outline diagram-replace", type: "button" }, "Replace");
+      replace.addEventListener("click", () => fi.click());
+      host.appendChild(el("div", { class: "diagram-wrap" }, frame, del));
+      host.appendChild(el("div", { class: "diagram-actions" }, replace, fi,
+        el("span", { class: "diagram-hint" }, "Drag the bottom-right corner to resize.")));
+    } else {
+      const fi = filePicker();
+      const add = el("button", { class: "btn btn-outline", type: "button" }, "＋ Add image");
+      add.addEventListener("click", () => fi.click());
+      host.appendChild(el("div", { class: "diagram-empty" },
+        el("p", {}, "Paste a diagram, drop an image, or add one:"), add, fi));
+    }
+  }
+
+  host.addEventListener("paste", e => {
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.kind === "file" && it.type.startsWith("image/")) { e.preventDefault(); handleFile(it.getAsFile()); return; }
+    }
+  });
+  host.addEventListener("dragover", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+  host.addEventListener("drop", e => {
+    const f = e.dataTransfer && [...e.dataTransfer.files].find(x => x.type.startsWith("image/"));
+    if (f) { e.preventDefault(); handleFile(f); }
+  });
+
+  render();
+  return el("div", { class: "diagram-host" },
+    el("div", { class: "diagram-title" }, el("span", { class: "paisley", html: SVG.paisley }), "Diagram"),
+    host);
 }
 
 /* rich, auto-growing note field bound to a Store field */
@@ -191,7 +304,7 @@ const Notes = {
       el("span", { class: "lotus", html: SVG.lotus }),
       el("h1", {}, sys.name)
     ));
-    mount.appendChild(el("p", { class: "subtle" }, sys.blurb));
+    mount.appendChild(videoBox(`vid:${sys.id}`));
 
     const prog = Store.checklistProgress(sys);
     const toolbar = el("div", { class: "toolbar" },
@@ -278,6 +391,7 @@ const Notes = {
       el("button", { class: "btn btn-outline", onclick: () => { Store.setRows(tableId, Store.getRows(tableId, 6) + 1); renderRows(); } }, "+ Add muscle"),
       el("button", { class: "btn btn-outline", onclick: () => { const c = Store.getRows(tableId, 6); if (c > 1) { Store.setRows(tableId, c - 1); renderRows(); } } }, "– Remove last")
     ));
+    host.appendChild(diagramBox(`${tableId}:diagram`));
     return host;
   },
 
@@ -288,7 +402,7 @@ const Notes = {
     mount.appendChild(el("div", { class: "section-title" },
       el("span", { class: "lotus", html: SVG.lotus }),
       el("h1", {}, spec.name)));
-    mount.appendChild(el("p", { class: "subtle" }, spec.blurb));
+    mount.appendChild(videoBox(`vid:clin:${spec.id}`));
     mount.appendChild(el("div", { class: "toolbar" }, this.statusPicker("st:clin:" + spec.id)));
 
     // ---- Overview / Need to Know table ----

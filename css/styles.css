@@ -4,14 +4,14 @@
    ========================================================================== */
 
 :root {
-  --ivory:      #fdf6ec;
-  --paper:      #fffaf2;
-  --maroon:     #7a1f2b;
-  --maroon-dk:  #5c151f;
-  --saffron:    #e8820c;
-  --marigold:   #f4a300;
-  --gold:       #c9a227;
-  --gold-soft:  #e7cf8f;
+  --ivory:      #f0ead6;
+  --paper:      #f8f3e4;
+  --maroon:     #987654;
+  --maroon-dk:  #6f5640;
+  --saffron:    #c19a6b;
+  --marigold:   #c19a6b;
+  --gold:       #b89a6a;
+  --gold-soft:  #e3d6bb;
   --teal:       #0f7173;
   --teal-dk:    #0a5557;
   --ink:        #2b1d12;
@@ -41,8 +41,8 @@ body {
   color: var(--ink);
   background-color: var(--ivory);
   background-image:
-    radial-gradient(circle at 12% -5%, rgba(244,163,0,0.10), transparent 40%),
-    radial-gradient(circle at 90% 0%, rgba(15,113,115,0.08), transparent 38%);
+    radial-gradient(circle at 12% -5%, rgba(193,154,107,0.14), transparent 40%),
+    radial-gradient(circle at 90% 0%, rgba(152,118,84,0.10), transparent 38%);
   background-attachment: fixed;
   line-height: 1.55;
 }
@@ -356,3 +356,73 @@ footer.foot .heart { color: var(--rose); }
 .region-jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .region-jump a { font-size: .82rem; text-decoration: none; color: var(--maroon); border: 1px solid var(--gold-soft); border-radius: 999px; padding: 5px 12px; background: var(--paper); }
 .region-jump a:hover { background: #fde7cf; }
+
+/* ----- crash-course video link box ----- */
+.video-host {
+  margin: 4px 0 18px; padding: 12px 14px;
+  background: linear-gradient(110deg, #fbf6ea, var(--paper));
+  border: 1px solid var(--gold-soft); border-left: 4px solid var(--saffron);
+  border-radius: 12px;
+}
+.video-label {
+  display: flex; align-items: center; gap: 7px;
+  font-size: .74rem; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--ink-soft); margin-bottom: 8px;
+}
+.video-label .vb-ico { font-size: .95rem; }
+.video-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.video-input {
+  flex: 1 1 260px; min-width: 0; font-family: var(--font-body); font-size: .9rem;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; color: var(--ink);
+}
+.video-input:focus { outline: none; border-color: var(--saffron); box-shadow: 0 0 0 3px rgba(193,154,107,.2); }
+.video-link {
+  display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+  font-weight: 600; color: var(--maroon); background: #fff;
+  border: 1px solid var(--gold-soft); border-radius: 999px; padding: 7px 16px;
+}
+.video-link:hover { background: #fff3dd; }
+.video-link .vb-play {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--saffron); color: #fff; font-size: .7rem;
+}
+.vb-edit {
+  font-family: var(--font-body); font-size: .8rem; cursor: pointer;
+  background: transparent; border: none; color: var(--ink-soft); text-decoration: underline;
+}
+.vb-edit:hover { color: var(--maroon); }
+
+/* ----- resizable diagram / image box ----- */
+.diagram-host { margin: 14px 4px 4px; }
+.diagram-title {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-display); color: var(--maroon); font-size: 1.05rem; margin-bottom: 8px;
+}
+.diagram-title .paisley svg { width: 16px; height: 16px; }
+.diagram-box:focus { outline: none; }
+.diagram-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  text-align: center; padding: 22px; color: var(--ink-soft);
+  border: 1.5px dashed var(--gold-soft); border-radius: 12px; background: #fffdf8;
+}
+.diagram-empty p { margin: 0; font-size: .9rem; }
+.diagram-wrap { position: relative; display: inline-block; }
+.diagram-frame {
+  position: relative; display: inline-block;
+  width: 320px; height: 240px; max-width: 100%;
+  resize: both; overflow: hidden;
+  border: 1px solid var(--gold-soft); border-radius: 12px; background: #fffdf8;
+  padding: 6px;
+}
+.diagram-frame img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.diagram-del {
+  position: absolute; top: -10px; right: -10px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--gold-soft); background: #fff; color: var(--maroon);
+  font-size: 1.1rem; line-height: 1; box-shadow: var(--shadow-sm);
+}
+.diagram-del:hover { background: var(--rose); color: #fff; border-color: var(--rose); }
+.diagram-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.diagram-hint { font-size: .76rem; color: var(--ink-soft); }

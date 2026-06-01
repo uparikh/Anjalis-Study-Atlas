@@ -34,8 +34,8 @@ const Body2D = (() => {
   function statusFill(sys) {
     const s = statusOf(sys);
     return s === "done" ? "rgba(15,113,115,.42)"
-         : s === "in"   ? "rgba(244,163,0,.42)"
-         : "rgba(15,113,115,.14)";
+         : s === "in"   ? "rgba(193,154,107,.5)"
+         : "rgba(152,118,84,.16)";
   }
 
   // ---- Catmull-Rom -> smooth closed bezier path ----
