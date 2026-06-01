@@ -85,16 +85,23 @@ const Store = (() => {
     clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0;
     const body = JSON.stringify(state);
     const unloading = !!(opts && opts.unload);
-    fetch(CLOUD.url, {
+    return fetch(CLOUD.url, {
       method: "PUT",
       headers: { "x-atlas-key": CLOUD.key, "Content-Type": "application/json" },
       body,
       // only opt into keepalive on unload, and only when the body fits its cap
       keepalive: unloading && body.length < KEEPALIVE_LIMIT
     }).then(r => {
-      if (r.ok) dirty = false;
-      else { dirty = true; console.error("Cloud save rejected:", r.status); }
-    }).catch(() => { dirty = true; }); // offline: localStorage holds it; retry next change
+      if (r.ok) { dirty = false; return true; }
+      dirty = true; console.error("Cloud save rejected:", r.status); return false;
+    }).catch(() => { dirty = true; return false; }); // offline: localStorage holds it; retry next change
+  }
+
+  // Force an immediate push to the cloud, bypassing the debounce. Persists the
+  // latest to localStorage first, then resolves true on a confirmed save.
+  function saveNow() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+    return flushCloud();
   }
 
   function pushCloud(immediate) {
@@ -249,7 +256,7 @@ const Store = (() => {
     getGoals, setGoals, goalDates,
     checklistProgress, streakCount, activeDays,
     today, exportJSON, download, importJSON, subscribe,
-    onRemote, cloudSync,
+    onRemote, cloudSync, saveNow,
     get log() { return state.streak.log; }
   };
 })();
