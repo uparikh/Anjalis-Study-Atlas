@@ -357,17 +357,7 @@ const App = (() => {
   /* ------------------------------ toolbar ------------------------------ */
   function wireToolbar() {
     document.getElementById("btn-print").addEventListener("click", () => Print.booklet());
-    document.getElementById("btn-export").addEventListener("click", () => { Store.download(); toast("Backup downloaded ✓"); });
-
-    const saveBtn = document.getElementById("btn-save");
-    saveBtn.addEventListener("click", () => {
-      const original = saveBtn.textContent;
-      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
-      toast("Saving to the cloud…");
-      Store.saveNow().then(ok => {
-        toast(ok ? "Saved to the cloud ✓" : "Couldn't reach the cloud — your notes are still safe in this browser");
-      }).finally(() => { saveBtn.disabled = false; saveBtn.textContent = original; });
-    });
+    document.getElementById("btn-export").addEventListener("click", () => { Store.download(); toast("Saved ✓ — backup file downloaded"); });
 
     const fileInput = document.getElementById("import-file");
     document.getElementById("btn-import").addEventListener("click", () => fileInput.click());
