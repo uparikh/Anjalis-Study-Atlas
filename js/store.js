@@ -41,6 +41,53 @@ const Store = (() => {
     state.meta[bucket][id] = Date.now();
   }
 
+  // --- local persistence ---------------------------------------------------
+  // Safari caps localStorage near 5 MB; a notebook with pasted diagrams blows
+  // past that, so setItem throws and the save is silently lost — that's what
+  // cost real work. IndexedDB has a far larger quota, so it is now the
+  // authoritative local store. localStorage stays only as a fast mirror for
+  // instant first paint; its failures are harmless because IndexedDB holds the
+  // real copy. The cloud and in-memory state remain full and unchanged.
+  const LocalDB = (() => {
+    const DB = "anjali_atlas", STORE = "kv", ID = "state";
+    let dbp = null;
+    function open() {
+      if (dbp) return dbp;
+      dbp = new Promise((res, rej) => {
+        try {
+          if (typeof indexedDB === "undefined") return rej(new Error("no indexedDB"));
+          const req = indexedDB.open(DB, 1);
+          req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        } catch (e) { rej(e); }
+      });
+      return dbp;
+    }
+    function put(value) {
+      return open().then(db => new Promise((res, rej) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).put(value, ID);
+        tx.oncomplete = () => res(true); tx.onerror = () => rej(tx.error);
+      })).catch(() => false);
+    }
+    function get() {
+      return open().then(db => new Promise((res, rej) => {
+        const tx = db.transaction(STORE, "readonly");
+        const r = tx.objectStore(STORE).get(ID);
+        r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error);
+      })).catch(() => null);
+    }
+    return { put, get };
+  })();
+
+  // Persist locally: IndexedDB is authoritative (no practical size limit),
+  // localStorage is a best-effort mirror.
+  function saveLocal() {
+    LocalDB.put(state);
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+  }
+
   let state = load();
 
   function load() {
@@ -60,8 +107,7 @@ const Store = (() => {
     state.updated = Date.now();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      try { localStorage.setItem(KEY, JSON.stringify(state)); }
-      catch (e) { console.error("Save failed (storage full?)", e); }
+      saveLocal();
       emit();
       pushCloud();
     }, 250);
@@ -110,38 +156,58 @@ const Store = (() => {
     }).catch(() => { dirty = true; return false; }); // offline: localStorage holds it; retry next change
   }
 
+  // Once we've successfully merged the cloud into memory at least once this
+  // session, our in-memory state is a superset of the cloud, so writing it back
+  // can't drop anything. Until then (e.g. a session that started offline), we
+  // must NOT blind-write our possibly-thinner copy over the cloud.
+  let syncedThisSession = false;
+
   // Read-merge-write: pull the current cloud copy, field-merge it into ours,
   // then write the union back, so a save can't clobber edits another device
-  // made since our last sync. On unload there's no time for a round-trip, so we
-  // just write what we have — the other device's next load will merge, so no
-  // key is lost either way.
+  // made since our last sync. CRITICAL: if we can't READ the cloud, we do NOT
+  // write — overwriting an unread cloud with a thinner local copy is exactly
+  // the data-loss bug. Instead we keep the change pending and retry.
   let flushing = false;
   async function flushCloud(opts) {
     const unloading = !!(opts && opts.unload);
     clearTimeout(cloudTimer); cloudTimer = null; firstDirtyAt = 0;
-    if (unloading) return putCloud(opts);
+    // On unload there's no time for a round-trip. Only push if we've already
+    // merged the cloud this session (so memory ⊇ cloud); otherwise skip — the
+    // change is safe in localStorage and will sync on the next load.
+    if (unloading) return syncedThisSession ? putCloud(opts) : Promise.resolve(false);
     if (flushing) { cloudTimer = setTimeout(() => flushCloud(), 1500); return false; }
     flushing = true;
     try {
+      let reachedCloud = false;
       try {
         const r = await fetch(CLOUD.url, { headers: { "x-atlas-key": CLOUD.key } });
         if (r.ok) {
+          reachedCloud = true; // we know what's up there now; safe to write back
           const remote = JSON.parse(await r.text());
           if (remote && typeof remote === "object" && remote.fields) {
             state = mergeStates(state, remote);
-            try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+            syncedThisSession = true;
+            saveLocal();
             emit();
           }
         }
-      } catch (_) { /* offline: write local as-is below */ }
+      } catch (_) { /* read failed */ }
+      if (!reachedCloud) {
+        // Couldn't read the cloud to merge — never overwrite it blind. Keep the
+        // edit pending in localStorage and retry shortly.
+        dirty = true;
+        clearTimeout(cloudTimer);
+        cloudTimer = setTimeout(() => flushCloud(), 15000);
+        return false;
+      }
       return await putCloud(opts);
     } finally { flushing = false; }
   }
 
-  // Force an immediate push to the cloud, bypassing the debounce. Persists the
-  // latest to localStorage first, then resolves true on a confirmed save.
+  // Force an immediate sync, bypassing the debounce. Persists locally first,
+  // then resolves true on a confirmed cloud save.
   function saveNow() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
+    saveLocal();
     return flushCloud();
   }
 
@@ -205,29 +271,36 @@ const Store = (() => {
     return out;
   }
 
-  // Pull the cloud copy at startup and field-merge it with the local copy, so
-  // neither device's edits are lost regardless of clock skew or which saved
-  // last. Then write the merged union back so the cloud converges.
+  // Startup sync. First fold in the authoritative IndexedDB copy (localStorage
+  // may be a stale/truncated mirror if a past save hit Safari's cap), then pull
+  // and field-merge the cloud. Everything is a merge, so nothing is lost. We
+  // re-render at most once (avoiding repeated work on a big, image-heavy state).
   async function cloudSync() {
-    let remote = null;
+    let merged = false;
+
+    // 1) local IndexedDB copy
+    try {
+      const idb = await LocalDB.get();
+      if (idb && typeof idb === "object" && idb.fields) { state = mergeStates(state, idb); merged = true; }
+    } catch (_) {}
+
+    // 2) cloud copy
+    let reached = false, remote = null;
     try {
       const r = await fetch(CLOUD.url, { headers: { "x-atlas-key": CLOUD.key } });
-      if (!r.ok) return;
-      remote = JSON.parse(await r.text());
-    } catch (e) { return; } // offline / unreachable: keep working from localStorage
+      if (r.ok) { reached = true; remote = JSON.parse(await r.text()); }
+    } catch (_) {} // offline / unreachable: keep working from the local copy
 
-    if (remote && typeof remote === "object" && remote.fields) {
-      const before = JSON.stringify(state);
-      state = mergeStates(state, remote);
-      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {}
-      if (JSON.stringify(state) !== before) {
-        emit();
-        remoteSubs.forEach(fn => { try { fn(); } catch (_) {} });
-      }
-      putCloud({}); // write the merged union back so the cloud converges
-      return;
+    if (reached && remote && typeof remote === "object" && remote.fields) {
+      state = mergeStates(state, remote); merged = true; syncedThisSession = true;
     }
-    if (!isEmpty(state)) putCloud({}); // cloud empty/invalid: seed it from local
+
+    if (merged) {                       // single redraw + local save
+      saveLocal();
+      emit();
+      remoteSubs.forEach(fn => { try { fn(); } catch (_) {} });
+    }
+    if (reached && !isEmpty(state)) putCloud({}); // converge / seed the cloud
   }
 
   // --- study streak --------------------------------------------------------
